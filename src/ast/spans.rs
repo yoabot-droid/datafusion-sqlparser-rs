@@ -2128,6 +2128,7 @@ impl Spanned for FunctionArg {
 ///
 /// Missing spans:
 /// - [FunctionArgExpr::Wildcard]
+/// - [FunctionArgExpr::WildcardWithOptions]
 impl Spanned for FunctionArgExpr {
     fn span(&self) -> Span {
         match self {
@@ -2136,6 +2137,7 @@ impl Spanned for FunctionArgExpr {
                 union_spans(object_name.0.iter().map(|i| i.span()))
             }
             FunctionArgExpr::Wildcard => Span::empty(),
+            FunctionArgExpr::WildcardWithOptions(_) => Span::empty(),
         }
     }
 }

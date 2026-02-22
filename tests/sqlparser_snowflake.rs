@@ -4890,3 +4890,29 @@ fn test_select_dollar_column_from_stage() {
     // With table function args, without alias
     snowflake().verified_stmt("SELECT $1, $2 FROM @mystage1(file_format => 'myformat')");
 }
+
+#[test]
+fn test_hash_wildcard_exclude() {
+    // The canonical form normalizes `EXCLUDE(cols)` → `EXCLUDE (cols)` (space before parens),
+    // matching how WildcardAdditionalOptions / ExcludeSelectItem::Multiple is displayed.
+    let sql = r#"SELECT * FROM (SELECT *, HASH(*) HASH FROM (SELECT CREATED_AT::TIMESTAMP_NTZ AS CREATED_AT, UPDATED_AT::TIMESTAMP_NTZ AS UPDATED_AT, * EXCLUDE(SYNC_DATE, CREATED_AT, UPDATED_AT) FROM CMP_PROD.PUBLIC.CMP_AUDIT_LOG_HARD_DELETED)) S FULL JOIN (SELECT *, HASH(* EXCLUDE(SYNC_DATE)) HASH FROM CMP_PROD.ARCHIVE.CMP_AUDIT_LOG_HARD_DELETE_20260219) T USING(HASH) WHERE T.HASH IS NULL"#;
+    let canonical = r#"SELECT * FROM (SELECT *, HASH(*) AS HASH FROM (SELECT CREATED_AT::TIMESTAMP_NTZ AS CREATED_AT, UPDATED_AT::TIMESTAMP_NTZ AS UPDATED_AT, * EXCLUDE (SYNC_DATE, CREATED_AT, UPDATED_AT) FROM CMP_PROD.PUBLIC.CMP_AUDIT_LOG_HARD_DELETED)) S FULL JOIN (SELECT *, HASH(* EXCLUDE (SYNC_DATE)) AS HASH FROM CMP_PROD.ARCHIVE.CMP_AUDIT_LOG_HARD_DELETE_20260219) T USING(HASH) WHERE T.HASH IS NULL"#;
+    snowflake().verified_query_with_canonical(sql, canonical);
+}
+
+#[test]
+fn test_hash_star_simple() {
+    // HASH(*) — wildcard as a function argument.
+    snowflake().verified_expr("HASH(*)");
+}
+
+#[test]
+fn test_hash_star_exclude_simple() {
+    // HASH(* EXCLUDE (col)) — wildcard with EXCLUDE in a function argument (Snowflake).
+    // Canonical form has a space before the parenthesised column list.
+    snowflake().one_statement_parses_to(
+        "SELECT HASH(* EXCLUDE(SYNC_DATE)) FROM t",
+        "SELECT HASH(* EXCLUDE (SYNC_DATE)) FROM t",
+    );
+    snowflake().verified_expr("HASH(* EXCLUDE (SYNC_DATE))");
+}
