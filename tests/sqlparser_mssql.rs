@@ -2730,3 +2730,39 @@ fn parse_mssql_tran_shorthand() {
     // ROLLBACK TRAN normalizes to ROLLBACK (same as ROLLBACK TRANSACTION)
     ms().one_statement_parses_to("ROLLBACK TRAN", "ROLLBACK");
 }
+
+#[test]
+fn test_tsql_multi_statement_with_xml_nodes() {
+    let sql = r#"
+declare @hpath as nvarchar(max)
+set @hpath='AAA'
+-- COMMENT
+declare @xmlHpath as nvarchar(max)
+set @xmlHpath='AAA' + REPLACE(@hpath,'AAA','AAA') + 'AAA'
+set @xmlHpath=STUFF(@xmlHpath,CHARINDEX('AAA',@xmlHpath)+2,len('AAA'),'AAA')
+set @xmlHpath=STUFF(@xmlHpath,CHARINDEX('AAA',@xmlHpath)+1,len('AAA'),'AAA')
+set @xmlHpath=STUFF(@xmlHpath,CHARINDEX('AAA',@xmlHpath)+2,len('AAA'),'AAA')
+declare @xml as XML
+set @xml=CONVERT(XML,@xmlHpath)
+Select Rollup = n.value('AAA','AAA') ,row_number() over(order by ref.n) as RowNumber into #rollups From @xml.nodes('AAA') ref(n)
+select h.FriendlyName [HierarchyName] ,'AAA'+cast(al.SortOrder as varchar(3)) [RollupLevel] ,'AAA'+sd.SQLSchemaName+'AAA'+sd.SQLObjectName+'AAA' as [DimensionTable] ,al.ColumnName ,al.DisplayAttributeColumnName ,al.SortOrder ,r.Rollup into #HierarchyData from [dbo].[viewScoreHierarchyCore30] h inner join [dbo].[ScoreDimension] sd on h.DimensionGUID=sd.DimensionGUID inner join [dbo].[viewScoreHierarchyAttributeLinkCore30] al on h.HierarchyGUID=al.HierarchyGUID inner join #rollups r on al.SortOrder=r.RowNumber where PathAlias=CONVERT(XML,@xmlHpath).value('AAA','AAA') and sd.SQLTableAlias=CONVERT(XML,@xmlHpath).value('AAA','AAA')
+select * from #HierarchyData
+-- COMMENT
+declare @sql as nvarchar(max)
+set @sql='AAA' +(select top 1 dimensionTable from #HierarchyData) +'AAA' +( select stuff ( (select 'AAA'+ColumnName+'AAA'+Rollup+'AAA' from ( select distinct columnname, rollup from #HierarchyData ) x for xml path ('AAA') ),1,5,'AAA' ) )
+select @sql [SelectStatement]
+exec (@sql)
+drop table #rollups
+drop table #HierarchyData
+select * from [fw].[viewDimDepartment] where DepartmentRollup1ID='AAA' AND DepartmentRollup2ID='AAA' AND DepartmentRollup3ID='AAA' AND EntityID='AAA' AND SystemID='AAA'
+select * from [fw].[viewDimDepartment] where EntityID='AAA'
+select * from fw.DimDepartmentRollup1
+-- COMMENT
+select * from fw.DimDepartmentRollup2
+-- COMMENT
+select * from fw.DimDepartmentRollup3
+-- COMMENT
+select * from fw.viewDimDepartment where DepartmentCode = 'AAA'
+"#;
+    tsql().parse_sql_statements(sql).unwrap();
+}
