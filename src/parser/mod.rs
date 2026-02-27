@@ -17952,9 +17952,8 @@ impl<'a> Parser<'a> {
     ) -> Result<Option<ExcludeSelectItem>, ParserError> {
         let opt_exclude = if self.parse_keyword(Keyword::EXCLUDE) {
             if self.consume_token(&Token::LParen) {
-                let columns = self.parse_comma_separated(|parser| {
-                    parser.parse_object_name(false)
-                })?;
+                let columns =
+                    self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
                 self.expect_token(&Token::RParen)?;
                 Some(ExcludeSelectItem::Multiple(columns))
             } else {

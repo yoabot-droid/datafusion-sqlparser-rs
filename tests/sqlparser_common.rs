@@ -17429,9 +17429,8 @@ fn test_select_exclude_qualified_names() {
     let dialects = all_dialects_where(|d| d.supports_select_wildcard_exclude());
 
     // Qualified name in multi-column EXCLUDE list: f.* EXCLUDE (f.col1, f.col2)
-    let select = dialects.verified_only_select(
-        "SELECT f.* EXCLUDE (f.account_canonical_id, f.amount) FROM t AS f",
-    );
+    let select = dialects
+        .verified_only_select("SELECT f.* EXCLUDE (f.account_canonical_id, f.amount) FROM t AS f");
     match &select.projection[0] {
         SelectItem::QualifiedWildcard(_, WildcardAdditionalOptions { opt_exclude, .. }) => {
             assert_eq!(
