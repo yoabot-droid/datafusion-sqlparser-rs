@@ -1195,6 +1195,18 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports the `KEY` keyword as part of
+    /// column-level constraints in a `CREATE TABLE` statement.
+    ///
+    /// When enabled, the parser accepts these MySQL-specific column options:
+    /// - `UNIQUE [KEY]` — optional `KEY` after `UNIQUE`
+    /// - `[PRIMARY] KEY` — standalone `KEY` as shorthand for `PRIMARY KEY`
+    ///
+    /// <https://dev.mysql.com/doc/refman/8.4/en/create-table.html>
+    fn supports_key_column_option(&self) -> bool {
+        false
+    }
+
     /// Returns true if the specified keyword is reserved and cannot be
     /// used as an identifier without special handling like quoting.
     fn is_reserved_for_identifier(&self, kw: Keyword) -> bool {
@@ -1514,6 +1526,18 @@ pub trait Dialect: Debug + Any {
     ///
     /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/select#parameters)
     fn supports_select_wildcard_rename(&self) -> bool {
+        false
+    }
+
+    /// Returns true if this dialect supports aliasing a wildcard select item.
+    ///
+    /// Example:
+    /// ```sql
+    /// SELECT t.* AS alias FROM t
+    /// ```
+    ///
+    /// [Redshift](https://docs.aws.amazon.com/redshift/latest/dg/r_SELECT_list.html)
+    fn supports_select_wildcard_with_alias(&self) -> bool {
         false
     }
 

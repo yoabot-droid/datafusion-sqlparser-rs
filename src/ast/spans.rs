@@ -1824,6 +1824,7 @@ impl Spanned for WildcardAdditionalOptions {
             opt_except,
             opt_replace,
             opt_rename,
+            opt_alias,
         } = self;
 
         union_spans(
@@ -1832,7 +1833,8 @@ impl Spanned for WildcardAdditionalOptions {
                 .chain(opt_exclude.as_ref().map(|i| i.span()))
                 .chain(opt_rename.as_ref().map(|i| i.span()))
                 .chain(opt_replace.as_ref().map(|i| i.span()))
-                .chain(opt_except.as_ref().map(|i| i.span())),
+                .chain(opt_except.as_ref().map(|i| i.span()))
+                .chain(opt_alias.as_ref().map(|i| i.span)),
         )
     }
 }
@@ -1847,8 +1849,8 @@ impl Spanned for IlikeSelectItem {
 impl Spanned for ExcludeSelectItem {
     fn span(&self) -> Span {
         match self {
-            ExcludeSelectItem::Single(ident) => ident.span,
-            ExcludeSelectItem::Multiple(vec) => union_spans(vec.iter().map(|i| i.span)),
+            ExcludeSelectItem::Single(name) => name.span(),
+            ExcludeSelectItem::Multiple(vec) => union_spans(vec.iter().map(|i| i.span())),
         }
     }
 }
@@ -2128,6 +2130,7 @@ impl Spanned for FunctionArg {
 ///
 /// Missing spans:
 /// - [FunctionArgExpr::Wildcard]
+/// - [FunctionArgExpr::WildcardWithOptions]
 impl Spanned for FunctionArgExpr {
     fn span(&self) -> Span {
         match self {
@@ -2136,6 +2139,7 @@ impl Spanned for FunctionArgExpr {
                 union_spans(object_name.0.iter().map(|i| i.span()))
             }
             FunctionArgExpr::Wildcard => Span::empty(),
+            FunctionArgExpr::WildcardWithOptions(_) => Span::empty(),
         }
     }
 }

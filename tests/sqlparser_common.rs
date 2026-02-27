@@ -1281,6 +1281,26 @@ fn parse_select_expr_star() {
 }
 
 #[test]
+fn parse_select_wildcard_with_alias() {
+    let dialects = all_dialects_where(|d| d.supports_select_wildcard_with_alias());
+
+    // qualified wildcard with alias
+    dialects
+        .parse_sql_statements("SELECT t.* AS all_cols FROM t")
+        .unwrap();
+
+    // unqualified wildcard with alias
+    dialects
+        .parse_sql_statements("SELECT * AS all_cols FROM t")
+        .unwrap();
+
+    // mixed: regular column + qualified wildcard with alias
+    dialects
+        .parse_sql_statements("SELECT a.id, b.* AS b_cols FROM a JOIN b ON (a.id = b.a_id)")
+        .unwrap();
+}
+
+#[test]
 fn test_eof_after_as() {
     let res = parse_sql_statements("SELECT foo AS");
     assert_eq!(
@@ -17300,7 +17320,9 @@ fn test_select_exclude() {
         SelectItem::Wildcard(WildcardAdditionalOptions { opt_exclude, .. }) => {
             assert_eq!(
                 *opt_exclude,
-                Some(ExcludeSelectItem::Single(Ident::new("c1")))
+                Some(ExcludeSelectItem::Single(ObjectName::from(Ident::new(
+                    "c1"
+                ))))
             );
         }
         _ => unreachable!(),
@@ -17313,8 +17335,8 @@ fn test_select_exclude() {
             assert_eq!(
                 *opt_exclude,
                 Some(ExcludeSelectItem::Multiple(vec![
-                    Ident::new("c1"),
-                    Ident::new("c2")
+                    ObjectName::from(Ident::new("c1")),
+                    ObjectName::from(Ident::new("c2")),
                 ]))
             );
         }
@@ -17325,7 +17347,9 @@ fn test_select_exclude() {
         SelectItem::Wildcard(WildcardAdditionalOptions { opt_exclude, .. }) => {
             assert_eq!(
                 *opt_exclude,
-                Some(ExcludeSelectItem::Single(Ident::new("c1")))
+                Some(ExcludeSelectItem::Single(ObjectName::from(Ident::new(
+                    "c1"
+                ))))
             );
         }
         _ => unreachable!(),
@@ -17347,7 +17371,9 @@ fn test_select_exclude() {
     }
     assert_eq!(
         select.exclude,
-        Some(ExcludeSelectItem::Single(Ident::new("c1")))
+        Some(ExcludeSelectItem::Single(ObjectName::from(Ident::new(
+            "c1"
+        ))))
     );
 
     let dialects = all_dialects_where(|d| {
@@ -17358,7 +17384,9 @@ fn test_select_exclude() {
         SelectItem::Wildcard(WildcardAdditionalOptions { opt_exclude, .. }) => {
             assert_eq!(
                 *opt_exclude,
-                Some(ExcludeSelectItem::Single(Ident::new("c1")))
+                Some(ExcludeSelectItem::Single(ObjectName::from(Ident::new(
+                    "c1"
+                ))))
             );
         }
         _ => unreachable!(),
@@ -17393,6 +17421,33 @@ fn test_select_exclude() {
             .unwrap(),
         ParserError::ParserError("Expected: end of statement, found: EXCLUDE".to_string())
     );
+}
+
+#[test]
+fn test_select_exclude_qualified_names() {
+    // EXCLUDE should accept qualified names like `f.col` parsed as ObjectName.
+    let dialects = all_dialects_where(|d| d.supports_select_wildcard_exclude());
+
+    // Qualified name in multi-column EXCLUDE list: f.* EXCLUDE (f.col1, f.col2)
+    let select = dialects.verified_only_select(
+        "SELECT f.* EXCLUDE (f.account_canonical_id, f.amount) FROM t AS f",
+    );
+    match &select.projection[0] {
+        SelectItem::QualifiedWildcard(_, WildcardAdditionalOptions { opt_exclude, .. }) => {
+            assert_eq!(
+                *opt_exclude,
+                Some(ExcludeSelectItem::Multiple(vec![
+                    ObjectName::from(vec![Ident::new("f"), Ident::new("account_canonical_id")]),
+                    ObjectName::from(vec![Ident::new("f"), Ident::new("amount")]),
+                ]))
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // Plain identifiers must still parse successfully.
+    dialects.verified_only_select("SELECT f.* EXCLUDE (account_canonical_id) FROM t AS f");
+    dialects.verified_only_select("SELECT f.* EXCLUDE (col1, col2) FROM t AS f");
 }
 
 #[test]
@@ -18562,4 +18617,20 @@ fn parse_array_subscript() {
 
     dialects.verified_stmt("SELECT arr[1][2]");
     dialects.verified_stmt("SELECT arr[:][:]");
+}
+
+#[test]
+fn test_wildcard_func_arg() {
+    // Wildcard (*) and wildcard with EXCLUDE as a function argument.
+    // Documented for Snowflake's HASH function but parsed for any dialect that
+    // supports the wildcard-EXCLUDE select syntax.
+    let dialects = all_dialects_where(|d| d.supports_select_wildcard_exclude());
+
+    // Wildcard with EXCLUDE — canonical form has a space before the parenthesised column list.
+    dialects.one_statement_parses_to(
+        "SELECT HASH(* EXCLUDE(col1)) FROM t",
+        "SELECT HASH(* EXCLUDE (col1)) FROM t",
+    );
+    dialects.verified_expr("HASH(* EXCLUDE (col1))");
+    dialects.verified_expr("HASH(* EXCLUDE (col1, col2))");
 }

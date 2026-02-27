@@ -9048,17 +9048,38 @@ impl<'a> Parser<'a> {
                 .into(),
             ))
         } else if self.parse_keyword(Keyword::UNIQUE) {
+            let index_type_display =
+                if self.dialect.supports_key_column_option() && self.parse_keyword(Keyword::KEY) {
+                    KeyOrIndexDisplay::Key
+                } else {
+                    KeyOrIndexDisplay::None
+                };
             let characteristics = self.parse_constraint_characteristics()?;
             Ok(Some(
                 UniqueConstraint {
                     name: None,
                     index_name: None,
-                    index_type_display: KeyOrIndexDisplay::None,
+                    index_type_display,
                     index_type: None,
                     columns: vec![],
                     index_options: vec![],
                     characteristics,
                     nulls_distinct: NullsDistinctOption::None,
+                }
+                .into(),
+            ))
+        } else if self.dialect.supports_key_column_option() && self.parse_keyword(Keyword::KEY) {
+            // In MySQL, `KEY` in a column definition is shorthand for `PRIMARY KEY`.
+            // See: https://dev.mysql.com/doc/refman/8.4/en/create-table.html
+            let characteristics = self.parse_constraint_characteristics()?;
+            Ok(Some(
+                PrimaryKeyConstraint {
+                    name: None,
+                    index_name: None,
+                    index_type: None,
+                    columns: vec![],
+                    index_options: vec![],
+                    characteristics,
                 }
                 .into(),
             ))
@@ -17576,7 +17597,26 @@ impl<'a> Parser<'a> {
         if let Some(arg) = arg {
             return Ok(arg);
         }
-        Ok(FunctionArg::Unnamed(self.parse_wildcard_expr()?.into()))
+        let wildcard_expr = self.parse_wildcard_expr()?;
+        let arg_expr: FunctionArgExpr = match wildcard_expr {
+            Expr::Wildcard(ref token) if self.dialect.supports_select_wildcard_exclude() => {
+                // Support `* EXCLUDE(col1, col2, ...)` inside function calls (e.g. Snowflake's
+                // `HASH(* EXCLUDE(col))`).  Parse the options the same way SELECT items do.
+                let opts = self.parse_wildcard_additional_options(token.0.clone())?;
+                if opts.opt_exclude.is_some()
+                    || opts.opt_except.is_some()
+                    || opts.opt_replace.is_some()
+                    || opts.opt_rename.is_some()
+                    || opts.opt_ilike.is_some()
+                {
+                    FunctionArgExpr::WildcardWithOptions(opts)
+                } else {
+                    wildcard_expr.into()
+                }
+            }
+            other => other.into(),
+        };
+        Ok(FunctionArg::Unnamed(arg_expr))
     }
 
     fn parse_function_named_arg_operator(&mut self) -> Result<FunctionArgOperator, ParserError> {
@@ -17864,6 +17904,16 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let opt_alias = if self.dialect.supports_select_wildcard_with_alias() {
+            if self.parse_keyword(Keyword::AS) {
+                Some(self.parse_identifier()?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Ok(WildcardAdditionalOptions {
             wildcard_token: wildcard_token.into(),
             opt_ilike,
@@ -17871,6 +17921,7 @@ impl<'a> Parser<'a> {
             opt_except,
             opt_rename,
             opt_replace,
+            opt_alias,
         })
     }
 
@@ -17901,11 +17952,13 @@ impl<'a> Parser<'a> {
     ) -> Result<Option<ExcludeSelectItem>, ParserError> {
         let opt_exclude = if self.parse_keyword(Keyword::EXCLUDE) {
             if self.consume_token(&Token::LParen) {
-                let columns = self.parse_comma_separated(|parser| parser.parse_identifier())?;
+                let columns = self.parse_comma_separated(|parser| {
+                    parser.parse_object_name(false)
+                })?;
                 self.expect_token(&Token::RParen)?;
                 Some(ExcludeSelectItem::Multiple(columns))
             } else {
-                let column = self.parse_identifier()?;
+                let column = self.parse_object_name(false)?;
                 Some(ExcludeSelectItem::Single(column))
             }
         } else {
@@ -18553,6 +18606,9 @@ impl<'a> Parser<'a> {
 
     /// Parse a SQL `EXECUTE` statement
     pub fn parse_execute(&mut self) -> Result<Statement, ParserError> {
+        // Track whether the procedure/expression name itself was wrapped in parens,
+        // i.e. `EXEC (@sql)` (dynamic string execution) vs `EXEC sp_name`.
+        // When the name has parens there are no additional parameters.
         let name = if self.dialect.supports_execute_immediate()
             && self.parse_keyword(Keyword::IMMEDIATE)
         {
@@ -18563,10 +18619,18 @@ impl<'a> Parser<'a> {
             if has_parentheses {
                 self.expect_token(&Token::RParen)?;
             }
-            Some(name)
+            Some((name, has_parentheses))
         };
 
-        let has_parentheses = self.consume_token(&Token::LParen);
+        let name_had_parentheses = name.as_ref().map(|(_, p)| *p).unwrap_or(false);
+
+        // Only look for a parameter list when the name was NOT wrapped in parens.
+        // `EXEC (@sql)` is dynamic SQL execution and takes no parameters here.
+        let has_parentheses = if name_had_parentheses {
+            false
+        } else {
+            self.consume_token(&Token::LParen)
+        };
 
         let end_kws = &[Keyword::USING, Keyword::OUTPUT, Keyword::DEFAULT];
         let end_token = match (has_parentheses, self.peek_token().token) {
@@ -18576,11 +18640,17 @@ impl<'a> Parser<'a> {
             (false, _) => Token::SemiColon,
         };
 
-        let parameters = self.parse_comma_separated0(Parser::parse_expr, end_token)?;
+        let parameters = if name_had_parentheses {
+            vec![]
+        } else {
+            self.parse_comma_separated0(Parser::parse_expr, end_token)?
+        };
 
         if has_parentheses {
             self.expect_token(&Token::RParen)?;
         }
+
+        let name = name.map(|(n, _)| n);
 
         let into = if self.parse_keyword(Keyword::INTO) {
             self.parse_comma_separated(Self::parse_identifier)?

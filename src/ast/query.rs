@@ -934,6 +934,9 @@ pub struct WildcardAdditionalOptions {
     pub opt_replace: Option<ReplaceSelectItem>,
     /// `[RENAME ...]`.
     pub opt_rename: Option<RenameSelectItem>,
+    /// `[AS <alias>]`.
+    ///  Redshift syntax: <https://docs.aws.amazon.com/redshift/latest/dg/r_SELECT_list.html>
+    pub opt_alias: Option<Ident>,
 }
 
 impl Default for WildcardAdditionalOptions {
@@ -945,6 +948,7 @@ impl Default for WildcardAdditionalOptions {
             opt_except: None,
             opt_replace: None,
             opt_rename: None,
+            opt_alias: None,
         }
     }
 }
@@ -965,6 +969,9 @@ impl fmt::Display for WildcardAdditionalOptions {
         }
         if let Some(rename) = &self.opt_rename {
             write!(f, " {rename}")?;
+        }
+        if let Some(alias) = &self.opt_alias {
+            write!(f, " AS {alias}")?;
         }
         Ok(())
     }
@@ -1011,13 +1018,13 @@ pub enum ExcludeSelectItem {
     /// ```plaintext
     /// <col_name>
     /// ```
-    Single(Ident),
+    Single(ObjectName),
     /// Multiple column names inside parenthesis.
     /// # Syntax
     /// ```plaintext
     /// (<col_name>, <col_name>, ...)
     /// ```
-    Multiple(Vec<Ident>),
+    Multiple(Vec<ObjectName>),
 }
 
 impl fmt::Display for ExcludeSelectItem {
