@@ -4822,3 +4822,32 @@ fn parse_create_database_with_charset_option_ordering() {
         "CREATE DATABASE mydb DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci",
     );
 }
+
+#[test]
+fn test_mysql_nested_join_without_parens() {
+    // MySQL supports nested joins without explicit parentheses:
+    //   FROM a JOIN b JOIN c ON b.id = c.id ON a.id = b.id
+    // The parser reads this right-to-left: the second ON closes the inner
+    // JOIN (b-c) and the first ON closes the outer JOIN (a-(b JOIN c)).
+    // The AST round-trips with explicit parentheses (the canonical equivalent).
+    // See: https://dev.mysql.com/doc/refman/8.4/en/nested-join-optimization.html
+    mysql().one_statement_parses_to(
+        "SELECT * FROM a JOIN b JOIN c ON b.id = c.id ON a.id = b.id",
+        "SELECT * FROM a JOIN (b JOIN c ON b.id = c.id) ON a.id = b.id",
+    );
+    // Three-level nesting
+    mysql().one_statement_parses_to(
+        "SELECT * FROM a JOIN b JOIN c JOIN d ON c.id = d.id ON b.id = c.id ON a.id = b.id",
+        "SELECT * FROM a JOIN (b JOIN (c JOIN d ON c.id = d.id) ON b.id = c.id) ON a.id = b.id",
+    );
+    // With INNER keyword
+    mysql().one_statement_parses_to(
+        "SELECT * FROM a INNER JOIN b INNER JOIN c ON b.id = c.id ON a.id = b.id",
+        "SELECT * FROM a INNER JOIN (b INNER JOIN c ON b.id = c.id) ON a.id = b.id",
+    );
+    // Real-world pattern: three-table join with ON conditions in reverse order
+    mysql().one_statement_parses_to(
+        "SELECT d.id, u.name, ui.email FROM document AS d JOIN ub04 AS u JOIN ub04_insured AS ui ON u.id = ui.ub04_id ON d.id = u.document_id",
+        "SELECT d.id, u.name, ui.email FROM document AS d JOIN (ub04 AS u JOIN ub04_insured AS ui ON u.id = ui.ub04_id) ON d.id = u.document_id",
+    );
+}

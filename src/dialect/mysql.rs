@@ -187,6 +187,14 @@ impl Dialect for MySqlDialect {
         true
     }
 
+    /// MySQL supports right-associative nested joins without parentheses:
+    /// `FROM a JOIN b JOIN c ON b.id = c.id ON a.id = b.id`
+    /// The inner `JOIN c ON b.id = c.id` is nested inside the outer join.
+    /// See: <https://dev.mysql.com/doc/refman/8.4/en/nested-join-optimization.html>
+    fn supports_left_associative_joins_without_parens(&self) -> bool {
+        false
+    }
+
     /// See: <https://dev.mysql.com/doc/refman/8.4/en/expressions.html>
     fn supports_double_ampersand_operator(&self) -> bool {
         true
